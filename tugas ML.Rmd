@@ -1,0 +1,89 @@
+---
+title: "Prediction Assignment Writeup"
+author: "keisha"
+date: "6/9/2025"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, cache = TRUE)
+```
+
+## 1. Pendahuluan
+Tujuan dari proyek ini adalah untuk membangun model *machine learning* yang dapat memprediksi kualitas pelaksanaan latihan angkat beban berdasarkan data dari sensor akselerometer. Kualitas gerakan diklasifikasikan ke dalam lima kelas: **A** (gerakan benar) dan **B, C, D, E** (empat tipe gerakan salah). Laporan ini akan merinci setiap langkah, mulai dari pemrosesan data hingga evaluasi model dan prediksi akhir.
+
+## 2. Pemuatan dan Pra-pemrosesan Data
+
+Langkah pertama adalah memuat library yang diperlukan dan mengunduh dataset. Kemudian, data akan dibersihkan untuk menghilangkan fitur yang tidak relevan dan dipartisi untuk proses pelatihan dan validasi.
+
+
+```{r data-loading-and-processing}
+library(caret)
+library(randomForest)
+library(dplyr)
+
+training_url <- "[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)"
+testing_url <- "[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)"
+
+training <- read.csv(url(training_url), na.strings=c("NA", "#DIV/0!", ""))
+testing <- read.csv(url(testing_url), na.strings=c("NA", "#DIV/0!", ""))
+
+set.seed(12345)
+inTrain <- createDataPartition(y = training$classe, p = 0.75, list = FALSE)
+training_set <- training[inTrain, ]
+validation_set <- training[-inTrain, ]
+
+high_na_cols <- names(training_set)[which(colSums(is.na(training_set)) / nrow(training_set) > 0.9)]
+training_set_clean <- training_set[, !names(training_set) %in% high_na_cols]
+
+irrelevant_cols <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+                     "cvtd_timestamp", "new_window", "num_window")
+training_final <- training_set_clean[, !names(training_set_clean) %in% irrelevant_cols]
+
+validation_final <- validation_set[, names(training_final)]
+testing_final <- testing[, names(testing) %in% names(training_final)]
+
+cat("Dimensi Set Pelatihan Final:", dim(training_final), "\n")
+cat("Dimensi Set Validasi Final:", dim(validation_final), "\n")
+cat("Dimensi Set Ujian Final:", dim(testing_final), "\n")
+```
+Setelah pembersihan, dataset pelatihan yang siap digunakan memiliki **`r ncol(training_final)`** kolom, dengan **`r ncol(training_final)-1`** sebagai fitur prediktor.
+
+## 3. Pembangunan dan Pelatihan Model
+
+Algoritma **Random Forest** dipilih karena kinerjanya yang sangat baik untuk masalah klasifikasi. Untuk mendapatkan estimasi performa yang akurat, digunakan metode **5-fold Cross-Validation**.
+
+```{r model-training}
+control <- trainControl(method = "cv", number = 5, verboseIter = FALSE)
+
+model_rf <- train(classe ~ ., 
+                  data = training_final, 
+                  method = "rf",
+                  trControl = control)
+
+print(model_rf)
+```
+Berdasarkan hasil *cross-validation*, model optimal terpilih dengan `mtry = 2` dan mencapai estimasi akurasi sebesar **`r round(max(model_rf$results$Accuracy), 4) * 100`%**.
+## 4. Evaluasi Performa Model
+
+Model yang telah dilatih kemudian dievaluasi menggunakan set validasi yang sebelumnya telah disisihkan. Ini adalah pengujian sesungguhnya terhadap performa model pada data baru.
+
+```{r model-evaluation}
+predictions_validation <- predict(model_rf, newdata = validation_final)
+
+cm <- confusionMatrix(predictions_validation, as.factor(validation_final$classe))
+print(cm)
+```
+Akurasi model pada set validasi adalah **`r round(cm$overall['Accuracy'], 4) * 100`%**, yang sangat konsisten dengan estimasi dari *cross-validation*. Ini menandakan model memiliki kemampuan generalisasi yang sangat baik.
+
+## 5. Prediksi pada Data Ujian
+
+Terakhir, model yang sudah terbukti andal ini digunakan untuk memprediksi 20 kasus pada dataset ujian (`pml-testing.csv`).
+
+
+```{r final-predictions}
+predictions_quiz <- predict(model_rf, newdata = testing_final)
+
+print(predictions_quiz)
+```
+Hasil prediksi di atas adalah jawaban yang akan diserahkan untuk bagian kuis dari proyek ini.
